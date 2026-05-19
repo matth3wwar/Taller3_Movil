@@ -31,7 +31,7 @@ class NotificationHelper(private val context: Context) {
 
     fun showNotification(userName: String) {
         val builder = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(R.drawable.contacticon) // Use an existing drawable
+            .setSmallIcon(R.drawable.contacticon)
             .setContentTitle("User Available")
             .setContentText("$userName is now available!")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

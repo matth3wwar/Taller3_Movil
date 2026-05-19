@@ -1,5 +1,6 @@
 package com.example.taller3.screens
 
+import android.Manifest
 import android.net.Uri
 import android.util.Log
 import android.widget.Toast
@@ -22,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -39,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -52,17 +55,23 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import coil.compose.rememberAsyncImagePainter
+import coil.compose.AsyncImage
 import com.example.taller3.R
 import com.example.taller3.model.UserAuthViewModel
 import com.example.taller3.navigation.AppScreens
 import com.example.taller3.utils.validateForm
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
+import java.io.File
 
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun Register(
     modifier: Modifier = Modifier,
@@ -75,6 +84,20 @@ fun Register(
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var isLoading by remember { mutableStateOf(false) }
 
+    // Camera and Permission Setup
+    val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
+    val cameraUri = FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        File(context.filesDir, "cameraPic_${System.currentTimeMillis()}.jpg")
+    )
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) selectedImageUri = cameraUri
+    }
+
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -82,7 +105,7 @@ fun Register(
     }
 
     LaunchedEffect(Unit) {
-        mAuth.currentUser?.let {
+        if (mAuth.currentUser != null) {
             controller.navigate(AppScreens.Home.name)
         }
     }
@@ -167,8 +190,8 @@ fun Register(
         )
 
         if (selectedImageUri != null) {
-            Image(
-                painter = rememberAsyncImagePainter(selectedImageUri),
+            AsyncImage(
+                model = selectedImageUri,
                 contentDescription = "Profile Picture",
                 modifier = Modifier
                     .size(100.dp)
@@ -185,15 +208,22 @@ fun Register(
         
         Spacer(modifier = Modifier.height(16.dp))
 
-        Row( 
+        Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center
         ) {
-            IconButton(onClick = { /* Implementar cámara */ }) {
-                Icon(Icons.Filled.AddCircle, contentDescription = "Use Camera")
+            IconButton(onClick = {
+                if (!cameraPermissionState.status.isGranted) {
+                    cameraPermissionState.launchPermissionRequest()
+                }
+                if (cameraPermissionState.status.isGranted) {
+                    cameraLauncher.launch(cameraUri)
+                }
+            }) {
+                Icon(Icons.Default.AddCircle, contentDescription = "Use Camera")
             }
             IconButton(onClick = { galleryLauncher.launch("image/*") }) {
-                Icon(Icons.Filled.Menu, contentDescription = "Use Gallery")
+                Icon(Icons.Default.MoreVert, contentDescription = "Use Gallery")
             }
         }
 
@@ -262,10 +292,9 @@ fun Register(
         Text(
             text = buildAnnotatedString {
                 append("Already own an account? ")
-                // Add a clickable, styled link
                 withLink(
                     LinkAnnotation.Clickable(
-                        tag = "register",
+                        tag = "login",
                         styles = TextLinkStyles(
                             style = SpanStyle(
                                 color = MaterialTheme.colorScheme.primary,

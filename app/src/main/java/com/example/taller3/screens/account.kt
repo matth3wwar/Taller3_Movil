@@ -1,5 +1,6 @@
 package com.example.taller3.screens
 
+import android.Manifest
 import android.net.Uri
 import android.util.Log
 import android.widget.Toast
@@ -35,12 +36,15 @@ import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import com.example.taller3.R
 import com.example.taller3.model.UserAuthViewModel
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun Account(
     modifier: Modifier = Modifier,
@@ -57,7 +61,8 @@ fun Account(
     val db = FirebaseFirestore.getInstance()
     val uid = mAuth.currentUser?.uid
 
-    // URI temporal para la cámara
+    // Permisos y Lanzadores de Cámara
+    val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
     val cameraUri = remember {
         val file = File(context.filesDir, "profile_edit_tmp.jpg")
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
@@ -189,7 +194,13 @@ fun Account(
                             .align(Alignment.BottomCenter)
                             .offset(y = 25.dp)
                     ) {
-                        FilledTonalIconButton(onClick = { cameraLauncher.launch(cameraUri) }) {
+                        FilledTonalIconButton(onClick = {
+                            if (cameraPermissionState.status.isGranted) {
+                                cameraLauncher.launch(cameraUri)
+                            } else {
+                                cameraPermissionState.launchPermissionRequest()
+                            }
+                        }) {
                             Icon(Icons.Default.AddCircle, contentDescription = "Camera")
                         }
                         Spacer(modifier = Modifier.width(12.dp))
@@ -203,7 +214,7 @@ fun Account(
             Spacer(modifier = Modifier.height(50.dp))
 
             if (isEditing) {
-                // Modo Edición: TextFields
+                // Modo Edición
                 OutlinedTextField(
                     value = userState.firstName,
                     onValueChange = { authViewModel.updateFirstName(it) },
@@ -257,11 +268,11 @@ fun Account(
                     }
                 }
             } else {
-                // Modo Lectura: Información estática
-                InfoField(label = "First Name", value = userState.firstName)
-                InfoField(label = "Last Name", value = userState.lastName)
-                InfoField(label = "ID Number", value = userState.idNumber)
-                InfoField(label = "Email Address", value = userState.email)
+                // Modo Lectura
+                AccountInfoField(label = "First Name", value = userState.firstName)
+                AccountInfoField(label = "Last Name", value = userState.lastName)
+                AccountInfoField(label = "ID Number", value = userState.idNumber)
+                AccountInfoField(label = "Email Address", value = userState.email)
 
                 Spacer(modifier = Modifier.height(40.dp))
                 
@@ -274,7 +285,7 @@ fun Account(
 }
 
 @Composable
-fun InfoField(label: String, value: String) {
+fun AccountInfoField(label: String, value: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
