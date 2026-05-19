@@ -89,7 +89,8 @@ fun Register(
             "idNumber" to userState.idNumber,
             "email" to userState.email,
             "photoUrl" to photoUrl,
-            "lastLocation" to null
+            "lastLocation" to null,
+            "available" to false
         )
 
         db.collection("users").document(uid)

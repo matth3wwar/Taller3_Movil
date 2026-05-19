@@ -65,11 +65,26 @@ fun LocationPermission() {
 fun Maps(navController: NavController) {
     LocationPermission()
     val context = LocalContext.current
+    val db = FirebaseFirestore.getInstance()
+    val uid = FirebaseAuth.getInstance().currentUser?.uid
 
     val sensorManager = context.getSystemService(SENSOR_SERVICE) as SensorManager
     val lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT)
 
     var isDarkMode by remember { mutableStateOf(true) }
+    var isAvailable by remember { mutableStateOf(false) }
+
+    // Cargar estado inicial de disponibilidad
+    LaunchedEffect(uid) {
+        uid?.let {
+            db.collection("users").document(it).get()
+                .addOnSuccessListener { document ->
+                    if (document != null && document.contains("available")) {
+                        isAvailable = document.getBoolean("available") ?: false
+                    }
+                }
+        }
+    }
 
     // Mantenemos estos estados para la funcionalidad de clics largos y ubicación del usuario
     var searchedLocation by remember { mutableStateOf<GeoPoint?>(null) }
@@ -99,17 +114,31 @@ fun Maps(navController: NavController) {
             TopAppBar(
                 title = { Text("Map") },
                 actions = {
-                    IconButton(onClick = {
-                        userLocation?.let {
-                            // Logic to center the map on the user can be added here
-                            Toast.makeText(context, "Centering on user...", Toast.LENGTH_SHORT).show()
-                        }
-                    }) {
-                        Icon(Icons.Default.LocationOn, contentDescription = "Center on me")
+                    // Toggle de disponibilidad
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Text(
+                            text = if (isAvailable) "Available" else "Not visible",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Switch(
+                            checked = isAvailable,
+                            onCheckedChange = { newValue ->
+                                isAvailable = newValue
+                                uid?.let {
+                                    db.collection("users").document(it)
+                                        .update("available", newValue)
+                                        .addOnFailureListener { e ->
+                                            Log.e("Firestore", "Error updating availability", e)
+                                        }
+                                }
+                            }
+                        )
                     }
-                    IconButton(onClick = { showHistory = !showHistory }) {
-                        Icon(Icons.Default.Search, contentDescription = "Toggle History")
-                    }
+
                     IconButton(onClick = {
                         FirebaseAuth.getInstance().signOut()
                         navController.navigate(AppScreens.Login.name) {
