@@ -15,24 +15,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.example.taller3.R
-import com.example.taller3.screens.Account
-import com.example.taller3.screens.Camera
-import com.example.taller3.screens.Contacts
-import com.example.taller3.screens.Login
-import com.example.taller3.screens.Maps
-import com.example.taller3.screens.Register
+import com.example.taller3.screens.*
 import com.google.firebase.auth.FirebaseAuth
 
 enum class AppScreens{
     Home,
     Login,
     Register,
-    Account
+    Account,
+    AvailableUsers
 }
 
 @Composable
@@ -42,19 +40,21 @@ fun Navigation(auth: FirebaseAuth, startDestination: AppScreens){
     Scaffold(
         bottomBar = {
             val navBackStackEntry by navController.currentBackStackEntryAsState()
-            val currentRoute = navBackStackEntry?.destination?.route
+            val currentRoute = navBackStackEntry?.destination?.route?.split("?")?.get(0)
 
-            // Define which screens should NOT show the bar
-            val hideBottomBar = currentRoute == AppScreens.Login.name || currentRoute == AppScreens.Register.name
+            val hideBottomBar = currentRoute == AppScreens.Login.name || 
+                               currentRoute == AppScreens.Register.name ||
+                               currentRoute == AppScreens.AvailableUsers.name
 
             if (!hideBottomBar) {
                 NavigationBar {
-                    val navBackStackEntry by navController.currentBackStackEntryAsState()
                     val currentDestination = navBackStackEntry?.destination
 
-                    // Iterate through your screens to create items
-                    AppScreens.entries.filter { it != AppScreens.Login && it != AppScreens.Register }
-                        .forEach { screen ->
+                    AppScreens.entries.filter { 
+                        it != AppScreens.Login && 
+                        it != AppScreens.Register && 
+                        it != AppScreens.AvailableUsers 
+                    }.forEach { screen ->
                         NavigationBarItem(
                             icon = {
                                 when (screen) {
@@ -62,17 +62,15 @@ fun Navigation(auth: FirebaseAuth, startDestination: AppScreens){
                                         Icons.Default.Home,
                                         contentDescription = null
                                     )
-
                                     AppScreens.Account -> Icon(
                                         Icons.Default.Person,
                                         contentDescription = null
                                     )
-
                                     else -> Icon(Icons.Default.Home, contentDescription = null)
                                 }
                             },
                             label = { Text(screen.name) },
-                            selected = currentDestination?.hierarchy?.any { it.route == screen.name } == true,
+                            selected = currentDestination?.hierarchy?.any { it.route?.startsWith(screen.name) == true } == true,
                             onClick = {
                                 navController.navigate(screen.name) {
                                     popUpTo(navController.graph.findStartDestination().id) {
@@ -96,14 +94,25 @@ fun Navigation(auth: FirebaseAuth, startDestination: AppScreens){
             composable(route= AppScreens.Account.name){
                 Account(mAuth = auth, controller = navController)
             }
-            composable(route= AppScreens.Home.name){
-                Maps(navController)
+            composable(
+                route = AppScreens.Home.name + "?targetUserId={targetUserId}",
+                arguments = listOf(navArgument("targetUserId") { 
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                })
+            ) { backStackEntry ->
+                val targetUserId = backStackEntry.arguments?.getString("targetUserId")
+                Maps(navController, targetUserId)
             }
             composable(route= AppScreens.Login.name){
                 Login(mAuth = auth, controller = navController)
             }
             composable(route= AppScreens.Register.name){
                 Register(mAuth = auth, controller = navController)
+            }
+            composable(route= AppScreens.AvailableUsers.name){
+                AvailableUsers(navController)
             }
         }
     }

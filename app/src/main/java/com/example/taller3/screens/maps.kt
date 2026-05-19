@@ -17,6 +17,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -24,17 +26,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import com.example.taller3.navigation.AppScreens
+import com.example.taller3.utils.NotificationHelper
 import com.google.accompanist.permissions.*
 import com.google.android.gms.location.*
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.FirebaseFirestore
 import org.json.JSONArray
 import org.json.JSONObject
@@ -49,21 +55,21 @@ import com.google.firebase.firestore.GeoPoint as FirestoreGeoPoint
 import java.io.File
 import java.util.*
 
-val locations = mutableListOf<JSONObject>()
-
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun LocationPermission() {
-    val permission = rememberPermissionState(android.Manifest.permission.ACCESS_FINE_LOCATION)
-    if (!permission.status.isGranted) {
-        LaunchedEffect(Unit) { permission.launchPermissionRequest() }
+fun NotificationPermission() {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        val permission = rememberPermissionState(android.Manifest.permission.POST_NOTIFICATIONS)
+        if (!permission.status.isGranted) {
+            LaunchedEffect(Unit) { permission.launchPermissionRequest() }
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun Maps(navController: NavController) {
-    LocationPermission()
+fun Maps(navController: NavController, targetUserId: String? = null) {
+    NotificationPermission()
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
     val uid = FirebaseAuth.getInstance().currentUser?.uid
@@ -73,6 +79,54 @@ fun Maps(navController: NavController) {
 
     var isDarkMode by remember { mutableStateOf(true) }
     var isAvailable by remember { mutableStateOf(false) }
+    
+    // Referencia al MapView para controlar la cámara
+    var mapViewInstance by remember { mutableStateOf<MapView?>(null) }
+
+    // Mantenemos estos estados para la funcionalidad de clics largos y ubicación del usuario
+    var searchedLocation by remember { mutableStateOf<GeoPoint?>(null) }
+    var longClickLocation by remember { mutableStateOf<GeoPoint?>(null) }
+    var userLocation by remember { mutableStateOf<GeoPoint?>(null) }
+    var showHistory by remember { mutableStateOf(false) }
+    
+    // Estado para el usuario objetivo a rastrear
+    var targetUserLocation by remember { mutableStateOf<GeoPoint?>(null) }
+    var targetUserName by remember { mutableStateOf("") }
+
+    val notificationHelper = remember { NotificationHelper(context) }
+    var firstLoad by remember { mutableStateOf(true) }
+
+    val roadManager = OSRMRoadManager(context, "ANDROID")
+
+    // Suscripción para recibir notificaciones cuando un usuario se pone disponible
+    LaunchedEffect(uid) {
+        if (uid != null) {
+            db.collection("users")
+                .whereEqualTo("available", true)
+                .addSnapshotListener { snapshot, e ->
+                    if (e != null) {
+                        Log.w("Firestore", "Listen failed.", e)
+                        return@addSnapshotListener
+                    }
+
+                    if (snapshot != null) {
+                        // Evitamos notificar todos los usuarios al cargar la app por primera vez
+                        if (!firstLoad) {
+                            for (dc in snapshot.documentChanges) {
+                                if (dc.type == DocumentChange.Type.ADDED) {
+                                    val name = dc.document.getString("firstName") ?: "A user"
+                                    val userUid = dc.document.id
+                                    if (userUid != uid) {
+                                        notificationHelper.showNotification(name)
+                                    }
+                                }
+                            }
+                        }
+                        firstLoad = false
+                    }
+                }
+        }
+    }
 
     // Cargar estado inicial de disponibilidad
     LaunchedEffect(uid) {
@@ -86,13 +140,28 @@ fun Maps(navController: NavController) {
         }
     }
 
-    // Mantenemos estos estados para la funcionalidad de clics largos y ubicación del usuario
-    var searchedLocation by remember { mutableStateOf<GeoPoint?>(null) }
-    var longClickLocation by remember { mutableStateOf<GeoPoint?>(null) }
-    var userLocation by remember { mutableStateOf<GeoPoint?>(null) }
-    var showHistory by remember { mutableStateOf(false) }
-
-    val roadManager = OSRMRoadManager(context, "ANDROID")
+    // Listener para la ubicación en tiempo real del usuario objetivo
+    LaunchedEffect(targetUserId) {
+        if (!targetUserId.isNullOrEmpty()) {
+            db.collection("users").document(targetUserId)
+                .addSnapshotListener { snapshot, error ->
+                    if (snapshot != null && snapshot.exists()) {
+                        val loc = snapshot.getGeoPoint("lastLocation")
+                        val name = snapshot.getString("firstName") ?: ""
+                        targetUserName = name
+                        if (loc != null) {
+                            val newLoc = GeoPoint(loc.latitude, loc.longitude)
+                            targetUserLocation = newLoc
+                            // Centrar mapa al recibir la primera ubicación del objetivo
+                            mapViewInstance?.controller?.animateTo(newLoc)
+                        }
+                    }
+                }
+        } else {
+            targetUserLocation = null
+            targetUserName = ""
+        }
+    }
 
     Location { geoPoint -> userLocation = geoPoint }
 
@@ -120,11 +189,12 @@ fun Maps(navController: NavController) {
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
                         Text(
-                            text = if (isAvailable) "Available" else "Not visible",
+                            text = if (isAvailable) "Available" else "Busy",
                             style = MaterialTheme.typography.bodySmall
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Switch(
+                            modifier = Modifier.scale(0.7f),
                             checked = isAvailable,
                             onCheckedChange = { newValue ->
                                 isAvailable = newValue
@@ -137,6 +207,32 @@ fun Maps(navController: NavController) {
                                 }
                             }
                         )
+                    }
+
+                    IconButton(onClick = {
+                        userLocation?.let {
+                            mapViewInstance?.controller?.animateTo(it)
+                        }
+                    }) {
+                        Icon(Icons.Default.LocationOn, contentDescription = "Center on me")
+                    }
+
+                    // BOTÓN 3: Lista de usuarios disponibles
+                    IconButton(onClick = {
+                        navController.navigate(AppScreens.AvailableUsers.name)
+                    }) {
+                        Icon(Icons.Default.Face, contentDescription = "Available Users")
+                    }
+
+                    // Botón para volver a la vista normal (solo si hay un usuario seleccionado)
+                    if (targetUserId != null) {
+                        IconButton(onClick = {
+                            navController.navigate(AppScreens.Home.name) {
+                                popUpTo(AppScreens.Home.name) { inclusive = true }
+                            }
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Stop tracking")
+                        }
                     }
 
                     IconButton(onClick = {
@@ -181,6 +277,7 @@ fun Maps(navController: NavController) {
                     })
 
                     mapView.overlays.add(overlayEvents)
+                    mapViewInstance = mapView
                     mapView
                 },
                 update = { mapView ->
@@ -220,8 +317,33 @@ fun Maps(navController: NavController) {
                         drawable?.setTint(if (isDarkMode) android.graphics.Color.WHITE else android.graphics.Color.BLACK)
                         marker.icon = drawable
                         marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        marker.title = "Me"
                         mapView.overlays.add(marker)
-                        mapView.controller.setCenter(it)
+                        
+                        // Solo centrar automáticamente si no estamos siguiendo a alguien
+                        if (targetUserId == null) {
+                            mapView.controller.setCenter(it)
+                        }
+                    }
+
+                    // Marcador del usuario objetivo (Cian)
+                    targetUserLocation?.let { targetLoc ->
+                        val marker = Marker(mapView)
+                        marker.position = targetLoc
+                        val drawable = ContextCompat.getDrawable(context, R.drawable.ic_marker_search)?.mutate()
+                        drawable?.setTint(android.graphics.Color.CYAN)
+                        marker.icon = drawable
+                        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        marker.title = targetUserName
+                        
+                        userLocation?.let { myLoc ->
+                            val dist = distance(myLoc.latitude, myLoc.longitude, targetLoc.latitude, targetLoc.longitude)
+                            marker.snippet = "Distance: ${"%.2f".format(dist)} m"
+                            marker.showInfoWindow()
+                        }
+                        
+                        mapView.overlays.add(marker)
+                        mapView.controller.animateTo(targetLoc)
                     }
 
                     longClickLocation?.let {
