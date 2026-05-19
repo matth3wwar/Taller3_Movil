@@ -141,7 +141,7 @@ fun Login(
                         }
                     )
                 ) {
-                    append("Create one here")
+                    append("Register here")
                 }
             }
         )

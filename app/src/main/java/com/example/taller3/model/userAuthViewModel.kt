@@ -11,6 +11,7 @@ data class UserAuthState(
     val firstName: String = "",
     val lastName: String = "",
     val idNumber: String = "",
+    val photoUrl: String? = null,
     val emailError:String = "",
     val passError : String = ""
 )
@@ -31,6 +32,10 @@ class UserAuthViewModel : ViewModel(){
         _user.value = _user.value.copy(idNumber = newId)
     }
 
+    fun updatePhotoUrl(url: String?) {
+        _user.value = _user.value.copy(photoUrl = url)
+    }
+
     fun updateEmailClass(newEmail : String){
         _user.value = _user.value.copy(email=newEmail)
     }
@@ -42,5 +47,15 @@ class UserAuthViewModel : ViewModel(){
     }
     fun updatePassError(error:String){
         _user.value = _user.value.copy(passError = error)
+    }
+
+    fun setUserData(firstName: String, lastName: String, idNumber: String, email: String, photoUrl: String?) {
+        _user.value = _user.value.copy(
+            firstName = firstName,
+            lastName = lastName,
+            idNumber = idNumber,
+            email = email,
+            photoUrl = photoUrl
+        )
     }
 }

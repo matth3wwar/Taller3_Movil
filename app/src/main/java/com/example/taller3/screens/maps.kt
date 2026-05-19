@@ -57,6 +57,23 @@ import java.util.*
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
+fun LocationPermission() {
+    val locationPermissionsState = rememberMultiplePermissionsState(
+        listOf(
+            android.Manifest.permission.ACCESS_COARSE_LOCATION,
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+        )
+    )
+
+    LaunchedEffect(Unit) {
+        if (!locationPermissionsState.allPermissionsGranted) {
+            locationPermissionsState.launchMultiplePermissionRequest()
+        }
+    }
+}
+
+@OptIn(ExperimentalPermissionsApi::class)
+@Composable
 fun NotificationPermission() {
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
         val permission = rememberPermissionState(android.Manifest.permission.POST_NOTIFICATIONS)
@@ -69,6 +86,7 @@ fun NotificationPermission() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun Maps(navController: NavController, targetUserId: String? = null) {
+    LocationPermission()
     NotificationPermission()
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
@@ -189,7 +207,7 @@ fun Maps(navController: NavController, targetUserId: String? = null) {
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
                         Text(
-                            text = if (isAvailable) "Available" else "Busy",
+                            text = if (isAvailable) "Available" else "Not visible",
                             style = MaterialTheme.typography.bodySmall
                         )
                         Spacer(modifier = Modifier.width(4.dp))
@@ -373,55 +391,35 @@ fun Maps(navController: NavController, targetUserId: String? = null) {
 }
 
 // ---------------- LOCATION ----------------
-@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun Location(onLocationUpdate: (GeoPoint) -> Unit) {
-
     val context = LocalContext.current
-    val client = LocationServices.getFusedLocationProviderClient(context)
+    val client = remember { LocationServices.getFusedLocationProviderClient(context) }
 
-    val permission = rememberPermissionState(android.Manifest.permission.ACCESS_FINE_LOCATION)
-
-    LaunchedEffect(Unit) { permission.launchPermissionRequest() }
-
-    if (permission.status.isGranted) {
-
-        val request = LocationRequest.Builder(
-            Priority.PRIORITY_HIGH_ACCURACY, 10000
-        ).setMinUpdateIntervalMillis(5000).build()
-
-        val callback = object : LocationCallback() {
+    val callback = remember {
+        object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { location ->
-                    // 1. Actualizar la UI del mapa (osmdroid GeoPoint)
                     onLocationUpdate(GeoPoint(location.latitude, location.longitude))
-
-                    // 2. Sincronizar con Firebase Firestore
                     val uid = FirebaseAuth.getInstance().currentUser?.uid
                     if (uid != null) {
                         val db = FirebaseFirestore.getInstance()
                         val firebasePoint = FirestoreGeoPoint(location.latitude, location.longitude)
-
                         db.collection("users").document(uid)
                             .update("lastLocation", firebasePoint)
-                            .addOnFailureListener { e ->
-                                Log.e("FirestoreLoc", "Error updating location: ${e.message}")
-                            }
                     }
                 }
             }
         }
+    }
 
-        DisposableEffect(Unit) {
-            if (ContextCompat.checkSelfPermission(
-                    context,
-                    android.Manifest.permission.ACCESS_FINE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED
-            ) {
-                client.requestLocationUpdates(request, callback, Looper.getMainLooper())
-            }
-            onDispose { client.removeLocationUpdates(callback) }
+    DisposableEffect(Unit) {
+        if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000)
+                .setMinUpdateIntervalMillis(5000).build()
+            client.requestLocationUpdates(request, callback, Looper.getMainLooper())
         }
+        onDispose { client.removeLocationUpdates(callback) }
     }
 }
 
@@ -438,16 +436,11 @@ fun distance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
 }
 
 fun readLocations(context: Context): List<GeoPoint> {
-    return try {// 1. Abrir el recurso
+    return try {
         val inputStream = context.resources.openRawResource(R.raw.locations)
         val jsonString = inputStream.bufferedReader().use { it.readText() }
-
-        // 2. Parsear como Objeto (porque el JSON empieza con { )
         val rootObject = JSONObject(jsonString)
-
-        // 3. Obtener el arreglo por su nombre exacto
         val jsonArray = rootObject.getJSONArray("locationsArray")
-
         val list = mutableListOf<GeoPoint>()
         for (i in 0 until jsonArray.length()) {
             val obj = jsonArray.getJSONObject(i)
@@ -455,8 +448,8 @@ fun readLocations(context: Context): List<GeoPoint> {
         }
         list
     } catch (e: Exception) {
-        Log.e("readLocations", "Error al leer el JSON: ${e.message}")
-        emptyList() // Retorna lista vacía en lugar de crashear
+        Log.e("readLocations", "Error reading locations.json", e)
+        emptyList()
     }
 }
 

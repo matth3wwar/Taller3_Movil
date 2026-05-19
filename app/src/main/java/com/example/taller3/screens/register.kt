@@ -42,8 +42,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -251,6 +258,30 @@ fun Register(
         if (userState.passError.isNotEmpty()) {
             Text(text = userState.passError, color = MaterialTheme.colorScheme.error)
         }
+
+        Text(
+            text = buildAnnotatedString {
+                append("Already own an account? ")
+                // Add a clickable, styled link
+                withLink(
+                    LinkAnnotation.Clickable(
+                        tag = "register",
+                        styles = TextLinkStyles(
+                            style = SpanStyle(
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                textDecoration = TextDecoration.Underline
+                            )
+                        ),
+                        linkInteractionListener = {
+                            controller.navigate(AppScreens.Login.name)
+                        }
+                    )
+                ) {
+                    append("Login here")
+                }
+            }
+        )
 
         Spacer(modifier = Modifier.height(24.dp))
 
